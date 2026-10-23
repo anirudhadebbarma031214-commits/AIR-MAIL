@@ -1,1 +1,58 @@
-{"id":"266054b8-9c2f-44a4-af46-c0e5424c1dfa","slug":"send-air-mail","name":"send-air-mail","status":"ACTIVE","version":1,"created_at":1792744250030,"updated_at":1792744250030,"verify_jwt":true,"import_map":false,"entrypoint_path":"/tmp/user_fn_xocizxszrqiexfxculsa_266054b8-9c2f-44a4-af46-c0e5424c1dfa_1/source/index.ts","ezbr_sha256":"7f570165b9420207ec904047b8e76d91e2eb4ca47a005d55b9701025235a7905","files":[{"name":"index.ts","content":"import \"jsr:@supabase/functions-js/edge-runtime.d.ts\";\nimport { createClient } from \"npm:@supabase/supabase-js@2\";\n\nconst corsHeaders = {\n  \"Access-Control-Allow-Origin\": \"*\",\n  \"Access-Control-Allow-Headers\": \"authorization, x-client-info, apikey, content-type\",\n  \"Access-Control-Allow-Methods\": \"POST, OPTIONS\",\n  \"Content-Type\": \"application/json\",\n};\n\nfunction reply(status: number, payload: Record<string, unknown>) {\n  return new Response(JSON.stringify(payload), { status, headers: corsHeaders });\n}\n\nDeno.serve(async (req: Request) => {\n  if (req.method === \"OPTIONS\") return new Response(\"ok\", { headers: corsHeaders });\n  if (req.method !== \"POST\") return reply(405, { error: \"Use POST.\" });\n\n  const authHeader = req.headers.get(\"Authorization\");\n  if (!authHeader?.startsWith(\"Bearer \")) return reply(401, { error: \"Sign in before sending mail.\" });\n\n  const supabaseUrl = Deno.env.get(\"SUPABASE_URL\") ?? \"\";\n  const publishableKey = Deno.env.get(\"SUPABASE_PUBLISHABLE_KEY\") ??\n    Deno.env.get(\"SUPABASE_ANON_KEY\") ?? \"\";\n  if (!supabaseUrl || !publishableKey) return reply(500, { error: \"Server Supabase configuration is missing.\" });\n\n  const supabase = createClient(supabaseUrl, publishableKey, {\n    global: { headers: { Authorization: authHeader } },\n    auth: { persistSession: false, autoRefreshToken: false },\n  });\n  const token = authHeader.slice(\"Bearer \".length);\n  const { data: userData, error: userError } = await supabase.auth.getUser(token);\n  const user = userData.user;\n  if (userError || !user || !user.email || user.is_anonymous) {\n    return reply(401, { error: \"A confirmed, non-anonymous account is required.\" });\n  }\n\n  let payload: { to?: unknown; subject?: unknown; body?: unknown };\n  try { payload = await req.json(); } catch { return reply(400, { error: \"Invalid JSON request.\" }); }\n  const to = typeof payload.to === \"string\" ? payload.to.trim() : \"\";\n  const subject = typeof payload.subject === \"string\" ? payload.subject.trim() : \"\";\n  const body = typeof payload.body === \"string\" ? payload.body.trim() : \"\";\n  if (!to || to.length > 320 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(to)) {\n    return reply(400, { error: \"Enter a valid recipient email address.\" });\n  }\n  if (subject.length > 300 || body.length < 1 || body.length > 50000) {\n    return reply(400, { error: \"Subject must be 300 characters or fewer and message body must be 1–50,000 characters.\" });\n  }\n\n  const resendKey = Deno.env.get(\"RESEND_API_KEY\");\n  const from = Deno.env.get(\"AIR_MAIL_FROM\");\n  if (!resendKey || !from) {\n    return reply(503, {\n      error: \"Email delivery is not configured yet. Add RESEND_API_KEY and AIR_MAIL_FROM in Supabase Edge Function secrets after verifying a sender domain in Resend.\",\n    });\n  }\n\n  const mailResponse = await fetch(\"https://api.resend.com/emails\", {\n    method: \"POST\",\n    headers: { Authorization: `Bearer ${resendKey}`, \"Content-Type\": \"application/json\" },\n    body: JSON.stringify({\n      from,\n      to: [to],\n      subject: subject || \"(no subject)\",\n      text: body,\n      reply_to: user.email,\n    }),\n  });\n  if (!mailResponse.ok) {\n    const detail = await mailResponse.text();\n    console.error(\"Resend delivery failed:\", mailResponse.status, detail.slice(0, 500));\n    return reply(502, { error: \"The email provider rejected this message. Check your verified sender domain and provider configuration.\" });\n  }\n\n  const { data: saved, error: saveError } = await supabase.from(\"air_mail_messages\").insert({\n    owner_id: user.id,\n    sender_email: user.email,\n    recipient_email: to,\n    subject,\n    body,\n    folder: \"Sent\",\n    is_read: true,\n  }).select(\"id\").single();\n  if (saveError) {\n    console.error(\"Email delivered but saving Sent record failed:\", saveError.message);\n    return reply(500, { delivered: true, warning: \"Email was accepted by the provider, but AIR MAIL could not save it to Sent.\" });\n  }\n\n  const providerData = await mailResponse.json().catch(() => ({}));\n  return reply(200, { ok: true, delivered: true, messageId: providerData.id ?? null, id: saved.id });\n});\n"}]}
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+function reply(status: number, payload: Record<string, unknown>) {
+  return new Response(JSON.stringify(payload), { status, headers: corsHeaders });
+}
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return reply(405, { error: "Use POST." });
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return reply(401, { error: "Sign in before sending mail." });
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const publishableKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!supabaseUrl || !publishableKey) return reply(500, { error: "Server Supabase configuration is missing." });
+  const supabase = createClient(supabaseUrl, publishableKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const token = authHeader.slice("Bearer ".length);
+  const { data: userData, error: userError } = await supabase.auth.getUser(token);
+  const user = userData.user;
+  if (userError || !user || !user.email || user.is_anonymous) return reply(401, { error: "A confirmed, non-anonymous account is required." });
+  let payload: { to?: unknown; subject?: unknown; body?: unknown };
+  try { payload = await req.json(); } catch { return reply(400, { error: "Invalid JSON request." }); }
+  const to = typeof payload.to === "string" ? payload.to.trim() : "";
+  const subject = typeof payload.subject === "string" ? payload.subject.trim() : "";
+  const body = typeof payload.body === "string" ? payload.body.trim() : "";
+  if (!to || to.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return reply(400, { error: "Enter a valid recipient email address." });
+  if (subject.length > 300 || body.length < 1 || body.length > 50000) return reply(400, { error: "Subject must be 300 characters or fewer and message body must be 1–50,000 characters." });
+  const resendKey = Deno.env.get("RESEND_API_KEY");
+  const from = Deno.env.get("AIR_MAIL_FROM");
+  if (!resendKey || !from) return reply(503, { error: "Email delivery is not configured yet. Add RESEND_API_KEY and AIR_MAIL_FROM in Supabase Edge Function secrets after verifying a sender domain in Resend." });
+  const mailResponse = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from, to: [to], subject: subject || "(no subject)", text: body, reply_to: user.email }),
+  });
+  if (!mailResponse.ok) {
+    const detail = await mailResponse.text();
+    console.error("Resend delivery failed:", mailResponse.status, detail.slice(0, 500));
+    return reply(502, { error: "The email provider rejected this message. Check your verified sender domain and provider configuration." });
+  }
+  const { data: saved, error: saveError } = await supabase.from("air_mail_messages").insert({
+    owner_id: user.id, sender_email: user.email, recipient_email: to, subject, body, folder: "Sent", is_read: true,
+  }).select("id").single();
+  if (saveError) {
+    console.error("Email delivered but saving Sent record failed:", saveError.message);
+    return reply(500, { delivered: true, warning: "Email was accepted by the provider, but AIR MAIL could not save it to Sent." });
+  }
+  const providerData = await mailResponse.json().catch(() => ({}));
+  return reply(200, { ok: true, delivered: true, messageId: providerData.id ?? null, id: saved.id });
+});
