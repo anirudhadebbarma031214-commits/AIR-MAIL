@@ -2,32 +2,25 @@
 
 **A clean, modern email workspace by ANI STUDIO.**
 
-Live site (after enabling GitHub Pages): https://anirudhadebbarma031214-commits.github.io/AIR-MAIL/
+Website: https://anirudhadebbarma031214-commits.github.io/AIR-MAIL/
 
-## Current build
-- Responsive dark navy / cyan email interface
+## Connected features
+- Supabase email/password sign-up and sign-in
+- Private per-user message storage in Supabase Postgres
+- Row Level Security (RLS) policies to restrict messages to their owner
 - Inbox, Starred, Sent, Drafts, Spam and Trash navigation
-- Search through messages
-- Compose preview messages and move them to Trash
-- Sample messages and locally saved preview data
+- Search, compose, open/read, star and move-to-Trash actions
+- Responsive dark navy / cyan interface
 
-## Important: preview, not real email yet
-This repository currently contains a front-end preview. Messages are stored in the current browser only. The “Send preview” action does **not** deliver email. The sample `.example` and `.test` addresses are not real mailboxes.
+## Important limitation: not yet a full email provider
+AIR MAIL is now connected to Supabase Auth and its database. Messages composed in the app are saved to the signed-in user's **Sent** folder, but are **not delivered to the recipient**. Incoming external email is not configured either. Do not use AIR MAIL for important or private real-world correspondence yet.
 
-A real email service requires secure account authentication, a database with per-user access rules, an outbound email provider, inbound email routing/processing, domain ownership and DNS records (MX, SPF, DKIM, and DMARC). Never put service-role keys or email-provider secrets in browser JavaScript or a public repository.
+To become a real email service, AIR MAIL still needs a verified domain, DNS records (MX, SPF, DKIM and DMARC), an outbound email provider behind a secure server-side function, inbound email routing and processing, abuse/rate-limit controls, account recovery, monitoring and privacy policies. Never put Supabase secret/service-role keys or email-provider secrets in browser JavaScript or this public repository.
+
+## Supabase project
+The site uses the project's public URL and publishable key in browser code. Publishable keys are designed for frontend use when RLS and least-privilege policies are configured. The database table is `public.air_mail_messages`. The SQL in `supabase/schema.sql` documents the table and policies already applied to the connected project.
 
 ## Publish with GitHub Pages
-1. Open the repository **Settings**.
-2. Select **Pages** in the left sidebar.
-3. Under **Build and deployment**, choose **Deploy from a branch**.
-4. Select branch `main` and folder `/ (root)`, then click **Save**.
-5. Wait for the Pages deployment to finish, then open the URL above.
-
-## Next steps for real mail
-1. Add authentication and a database (for example, Supabase) with strict per-user row-level security.
-2. Add a server-side function for outbound mail using a verified domain and email provider.
-3. Configure inbound email routing and safely process incoming messages.
-4. Add account recovery, spam controls, rate limits, abuse monitoring and privacy policies.
-5. Test with private test accounts before public launch.
+The repository includes a GitHub Actions deployment workflow. In repository **Settings → Pages**, set **Source** to **GitHub Actions**. Then open the **Actions** tab and wait for the Pages workflow to succeed.
 
 AIR MAIL is an independent project and is not affiliated with Google or Gmail.
